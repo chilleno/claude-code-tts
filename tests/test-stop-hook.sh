@@ -74,3 +74,40 @@ assert "empty message: exit 0"       [ "$rc" -eq 0 ]
 # malformed json: exit 0
 printf 'not json' | TTS_SAY_CMD="$HOME/stub-bin/say" bash "$HOOK" >/dev/null 2>&1
 assert "malformed json: exit 0"      [ $? -eq 0 ]
+
+# language: auto voice pick (stub list from fresh_home, novelty voice first),
+# region codes, `tts voice` file precedence, env TTS_VOICE precedence
+echo es > "$HOME/.claude/tts-lang"
+rm -f "$LOG"
+run_stop "$(stop_json 'hola amigo')"
+assert "lang: novelty skipped"       grep -q -- "-v Mónica" "$LOG"
+echo es-mx > "$HOME/.claude/tts-lang"
+rm -f "$LOG"
+run_stop "$(stop_json 'hola amigo')"
+assert "lang: es-mx -> Paulina"      grep -q -- "-v Paulina" "$LOG"
+echo "Samantha" > "$HOME/.claude/tts-voice"
+rm -f "$LOG"
+run_stop "$(stop_json 'hola amigo')"
+assert "voice file beats lang"       grep -q -- "-v Samantha" "$LOG"
+rm -f "$LOG"
+printf '%s' "$(stop_json 'hola amigo')" \
+  | TTS_SAY_CMD="$HOME/stub-bin/say" TTS_VOICE=Karen bash "$HOOK" >/dev/null 2>&1
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$LOG" ] && break; sleep 0.1; done
+assert "env TTS_VOICE beats all"     grep -q -- "-v Karen" "$LOG"
+rm -f "$HOME/.claude/tts-lang" "$HOME/.claude/tts-voice"
+
+# premium/enhanced voice preferred when installed
+cat > "$HOME/stub-bin/voices-premium" <<'EOF'
+#!/usr/bin/env bash
+echo "Eddy (Spanish (Spain)) es_ES    # Hola!"
+echo "Mónica               es_ES    # Hola!"
+echo "Mónica (Premium)     es_ES    # Hola!"
+EOF
+chmod +x "$HOME/stub-bin/voices-premium"
+echo es > "$HOME/.claude/tts-lang"
+rm -f "$LOG"
+printf '%s' "$(stop_json 'hola')" \
+  | TTS_SAY_CMD="$HOME/stub-bin/say" TTS_VOICE_LIST_CMD="$HOME/stub-bin/voices-premium" bash "$HOOK" >/dev/null 2>&1
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$LOG" ] && break; sleep 0.1; done
+assert "premium voice preferred"     grep -q -- "-v Mónica (Premium)" "$LOG"
+rm -f "$HOME/.claude/tts-lang"

@@ -73,6 +73,66 @@ assert "prompt_text field -> exit 2" [ "$rc" -eq 2 ]
 assert "prompt_text -> flag created" [ -f "$FLAG" ]
 rm -f "$FLAG"
 
+# language: tts lang es intercepted, stored, injected; tts lang off clears
+run_hook "$(prompt_json 'tts lang es')"
+assert "lang es -> exit 2"           [ "$rc" -eq 2 ]
+assert "lang es -> stored"           grep -q "es" "$HOME/.claude/tts-lang"
+assert "lang es -> confirms Spanish" grep -q "Spanish" "$HOME/err.txt"
+run_hook "$(prompt_json 'tts lang')"
+assert "lang query -> exit 2"        [ "$rc" -eq 2 ]
+assert "lang query -> reports es"    grep -q "es" "$HOME/err.txt"
+touch "$HOME/.claude/tts-enabled"
+run_hook "$(prompt_json 'hola')"
+assert "lang: injection has Spanish" grep -q "Reply entirely in Spanish" <<<"$out"
+run_hook "$(prompt_json 'tts lang off')"
+assert "lang off -> exit 2"          [ "$rc" -eq 2 ]
+assert "lang off -> file removed"    [ ! -f "$HOME/.claude/tts-lang" ]
+run_hook "$(prompt_json 'hola')"
+assert "lang off: no lang line"      ! grep -q "Reply entirely" <<<"$out"
+run_hook "$(prompt_json 'tts lang notacode')"
+assert "lang invalid -> exit 2"      [ "$rc" -eq 2 ]
+assert "lang invalid -> not stored"  [ ! -f "$HOME/.claude/tts-lang" ]
+rm -f "$HOME/.claude/tts-enabled"
+
+# voice: tts voice NAME (case-insensitive match on macOS), query, off, voices, region lang
+run_hook "$(prompt_json 'tts voice paulina')"
+assert "voice set -> exit 2"         [ "$rc" -eq 2 ]
+assert "voice set -> stored"         grep -qi "paulina" "$HOME/.claude/tts-voice"
+run_hook "$(prompt_json 'tts voice')"
+assert "voice query -> exit 2"       [ "$rc" -eq 2 ]
+assert "voice query -> reports"      grep -qi "paulina" "$HOME/err.txt"
+run_hook "$(prompt_json 'tts voice off')"
+assert "voice off -> cleared"        [ ! -f "$HOME/.claude/tts-voice" ]
+run_hook "$(prompt_json 'tts voices')"
+assert "voices -> exit 2"            [ "$rc" -eq 2 ]
+# voices listing filtered by language, with 'all' escape hatch (macOS only)
+if [ "$(uname -s)" = Darwin ]; then
+  echo es-mx > "$HOME/.claude/tts-lang"
+  run_hook "$(prompt_json 'tts voices')"
+  assert "voices: filtered header"     grep -q "showing only your selected language (es-mx)" "$HOME/err.txt"
+  assert "voices: Paulina listed"      grep -q "Paulina" "$HOME/err.txt"
+  assert "voices: Samantha hidden"     ! grep -q "Samantha" "$HOME/err.txt"
+  assert "voices: auto marked"         grep -q "★ Paulina" "$HOME/err.txt"
+  assert "voices: region label"        grep -q "Spanish (Mexico)" "$HOME/err.txt"
+  run_hook "$(prompt_json 'tts voices all')"
+  assert "voices all: everything"      grep -q "Samantha" "$HOME/err.txt"
+  assert "voices all: novelty tagged"  grep -q "Eddy.*\[novelty\]" "$HOME/err.txt"
+  # mismatched voice warns
+  run_hook "$(prompt_json 'tts voice samantha')"
+  assert "voice mismatch warns"        grep -q "warning:.*English" "$HOME/err.txt"
+  run_hook "$(prompt_json 'tts voice off')"
+  rm -f "$HOME/.claude/tts-lang"
+fi
+run_hook "$(prompt_json 'tts lang es-MX')"
+assert "lang region -> exit 2"       [ "$rc" -eq 2 ]
+assert "lang region -> stored lower" grep -q "^es-mx$" "$HOME/.claude/tts-lang"
+rm -f "$HOME/.claude/tts-lang"
+
+# toggle script directly: status reports engine detection line
+tstat="$(bash "$REPO_DIR/hooks/tts-toggle.sh" status)"
+assert "toggle: status exit 0"       [ $? -eq 0 ]
+assert "toggle: engine reported"     grep -q "speech engine:" <<<"$tstat"
+
 # malformed JSON: exit 0, silent
 out="$(printf 'this is not json' | bash "$HOOK" 2>/dev/null)"; rc=$?
 assert "malformed json -> exit 0"    [ "$rc" -eq 0 ]

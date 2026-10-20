@@ -75,7 +75,7 @@ cat > "$SETTINGS" <<'EOF'
 {"model": "opus", "hooks": {"Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "/other/stop.sh"}]}]}}
 EOF
 bash "$INSTALL" >/dev/null 2>&1
-touch "$HOME/.claude/tts-enabled" "$HOME/.claude/tts-speech.pid"
+touch "$HOME/.claude/tts-enabled" "$HOME/.claude/tts-speech.pid" "$HOME/.claude/tts-voice"
 bash "$UNINSTALL" >/dev/null 2>&1
 assert "uninstall: exit 0"           [ $? -eq 0 ]
 assert "uninstall: ours gone"        bash -c '! grep -q "tts-prompt-hook.sh" "$1"' _ "$SETTINGS"
@@ -86,6 +86,7 @@ assert "uninstall: valid json"       python3 -m json.tool "$SETTINGS" >/dev/null
 assert "uninstall: scripts removed"  [ ! -f "$HOME/.claude/hooks/tts-prompt-hook.sh" ]
 assert "uninstall: flag removed"     [ ! -f "$HOME/.claude/tts-enabled" ]
 assert "uninstall: pid removed"      [ ! -f "$HOME/.claude/tts-speech.pid" ]
+assert "uninstall: voice removed"    [ ! -f "$HOME/.claude/tts-voice" ]
 
 # empty groups pruned: no lingering empty UserPromptSubmit array
 n="$(jsonq "$SETTINGS" '"UserPromptSubmit" in s.get("hooks", {})')"
@@ -106,6 +107,45 @@ assert "configdir: command there"    [ -f "$ALT/commands/tts.md" ]
 assert "configdir: default untouched" [ ! -f "$HOME/.claude/settings.json" ]
 CLAUDE_CONFIG_DIR="$ALT" bash "$UNINSTALL" >/dev/null 2>&1
 assert "configdir: uninstall cleans" [ ! -f "$ALT/hooks/tts-prompt-hook.sh" ]
+
+# --- --dir flag -------------------------------------------------------------
+fresh_home
+ALT="$HOME/.claude-dirflag"
+bash "$INSTALL" --dir "$ALT" >/dev/null 2>&1
+assert "dirflag: installed there"    [ -x "$ALT/hooks/tts-prompt-hook.sh" ]
+assert "dirflag: default untouched"  [ ! -f "$HOME/.claude/settings.json" ]
+bash "$UNINSTALL" --dir "$ALT" >/dev/null 2>&1
+assert "dirflag: uninstall cleans"   [ ! -f "$ALT/hooks/tts-prompt-hook.sh" ]
+
+# --- multi-instance detection + interactive selection -----------------------
+fresh_home
+mkdir -p "$HOME/.claude-work"
+echo '{}' > "$HOME/.claude/settings.json"
+echo '{}' > "$HOME/.claude-work/settings.json"
+# pick only option 2 (~/.claude-work)
+printf '2\n' | CLAUDE_TTS_ASSUME_TTY=1 bash "$INSTALL" >"$HOME/menu-out.txt" 2>&1
+assert "detect: menu shown"          grep -q "Multiple Claude instances" "$HOME/menu-out.txt"
+assert "detect: option listed"       grep -q ".claude-work" "$HOME/menu-out.txt"
+assert "detect: chosen installed"    [ -x "$HOME/.claude-work/hooks/tts-prompt-hook.sh" ]
+assert "detect: other skipped"       [ ! -f "$HOME/.claude/hooks/tts-prompt-hook.sh" ]
+# 'all' installs into every candidate
+printf 'all\n' | CLAUDE_TTS_ASSUME_TTY=1 bash "$INSTALL" >/dev/null 2>&1
+assert "detect: all -> default too"  [ -x "$HOME/.claude/hooks/tts-prompt-hook.sh" ]
+
+# rc-file alias detection: CLAUDE_CONFIG_DIR=$HOME/... in .zshrc
+fresh_home
+mkdir -p "$HOME/.claude-rc"
+echo '{}' > "$HOME/.claude-rc/settings.json"
+rm -rf "$HOME/.claude"
+echo 'alias jarvis="CLAUDE_CONFIG_DIR=$HOME/.claude-rc claude"' > "$HOME/.zshrc"
+printf '1\n' | CLAUDE_TTS_ASSUME_TTY=1 bash "$INSTALL" >"$HOME/menu-out.txt" 2>&1
+assert "detect: rc alias found"      [ -x "$HOME/.claude-rc/hooks/tts-prompt-hook.sh" ]
+
+# single instance: no menu, installs directly
+fresh_home
+CLAUDE_TTS_ASSUME_TTY=1 bash "$INSTALL" >"$HOME/menu-out.txt" 2>&1 </dev/null
+assert "detect: single no menu"      bash -c '! grep -q "Multiple" "$1"' _ "$HOME/menu-out.txt"
+assert "detect: single installed"    [ -x "$HOME/.claude/hooks/tts-prompt-hook.sh" ]
 
 # --- installed hooks derive per-config state (no env override) --------------
 fresh_home

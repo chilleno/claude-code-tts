@@ -1,5 +1,5 @@
 ---
-description: Toggle text-to-speech for replies (on/off/status)
+description: Toggle text-to-speech for replies (on/off/status/lang <code>/voice <name|man|woman>/voices)
 allowed-tools: Bash
 ---
 

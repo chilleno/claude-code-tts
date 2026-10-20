@@ -41,9 +41,30 @@ case "$cmd" in
   "tts off")    bash "$SCRIPT_DIR/tts-toggle.sh" off >&2;    exit 2 ;;
   "tts")        bash "$SCRIPT_DIR/tts-toggle.sh" >&2;        exit 2 ;;
   "tts status") bash "$SCRIPT_DIR/tts-toggle.sh" status >&2; exit 2 ;;
+  "tts lang"|"tts lang "*)
+    rest="${cmd#tts lang}"; rest="${rest# }"
+    bash "$SCRIPT_DIR/tts-toggle.sh" lang "$rest" >&2 || true
+    exit 2 ;;
+  "tts voice"|"tts voice "*)
+    # voice names are case-sensitive-ish; pass the original (trimmed) text
+    rest="$(printf '%s' "$prompt" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | cut -c10- | sed 's/^[[:space:]]*//')"
+    bash "$SCRIPT_DIR/tts-toggle.sh" voice "$rest" >&2 || true
+    exit 2 ;;
+  "tts voices")
+    bash "$SCRIPT_DIR/tts-toggle.sh" voices >&2 || true
+    exit 2 ;;
+  "tts voices all")
+    bash "$SCRIPT_DIR/tts-toggle.sh" voices all >&2 || true
+    exit 2 ;;
 esac
 
 if tts_is_on; then
   printf '%s\n' "$TTS_INSTRUCTION"
+  lang="$(tts_lang)"
+  if [ -n "$lang" ]; then
+    name="$(lang_name "$lang")"
+    [ "$name" = "${lang%%-*}" ] && name="the language with ISO code '$name'"
+    printf 'Reply entirely in %s.\n' "$name"
+  fi
 fi
 exit 0

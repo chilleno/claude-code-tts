@@ -16,10 +16,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   TTS_VOICE  — macOS voice name, e.g. "Samantha", "Daniel" (`say -v ?` lists
 #                them). Empty = system default voice.
 #   TTS_RATE   — words per minute on macOS (`say -r`). Typical: 150–250.
-# Both can also be overridden per-session via environment variables.
+#   TTS_KOKORO_SPEED — Kokoro speaking speed (./install.sh --kokoro); 1.0 = natural.
+# All can also be overridden per-session via environment variables.
 # ---------------------------------------------------------------------------
 TTS_VOICE="${TTS_VOICE:-}"
 TTS_RATE="${TTS_RATE:-200}"
+TTS_KOKORO_SPEED="${TTS_KOKORO_SPEED:-1.0}"
 
 # Test hook: override the speech binary (e.g. a stub `say`).
 TTS_SAY_CMD="${TTS_SAY_CMD:-}"
@@ -53,38 +55,60 @@ speech="$(printf '%s\n' "$text" | awk '
   | sed -e 's/^ //' -e 's/ $//')"
 [ -z "$speech" ] && exit 0
 
+# --- language-aware voice ---------------------------------------------------
+# Precedence: TTS_VOICE env > `tts voice NAME` file > auto-pick from `tts lang`.
+TTS_LANG_CODE="$(tts_lang)"
+
+resolve_say_voice() { # sets say_voice for say-compatible engines
+  say_voice="$TTS_VOICE"
+  [ -z "$say_voice" ] && say_voice="$(tts_voice)"
+  if [ -z "$say_voice" ] && [ -n "$TTS_LANG_CODE" ]; then
+    say_voice="$(pick_voice "$TTS_LANG_CODE")"
+  fi
+}
+
 # --- pick a speaker per platform -------------------------------------------
 # speak() reads the text on stdin. Add a platform: add a case branch.
 speaker=()
 if [ -n "$TTS_SAY_CMD" ]; then
   speaker=("$TTS_SAY_CMD")
-  [ -n "$TTS_VOICE" ] && speaker+=(-v "$TTS_VOICE")
+  resolve_say_voice
+  [ -n "$say_voice" ] && speaker+=(-v "$say_voice")
   speaker+=(-r "$TTS_RATE")
 else
   case "$(uname -s)" in
     Darwin)
-      command -v say >/dev/null 2>&1 || exit 0
-      speaker=(say)
-      [ -n "$TTS_VOICE" ] && speaker+=(-v "$TTS_VOICE")
-      speaker+=(-r "$TTS_RATE")
+      if command -v say >/dev/null 2>&1; then
+        speaker=(say)
+        resolve_say_voice
+        [ -n "$say_voice" ] && speaker+=(-v "$say_voice")
+        speaker+=(-r "$TTS_RATE")
+      fi
       ;;
     Linux)
       if command -v spd-say >/dev/null 2>&1; then
         speaker=(spd-say -w -e)   # -e reads stdin, -w waits (we background anyway)
+        [ -n "$TTS_LANG_CODE" ] && speaker+=(-l "${TTS_LANG_CODE%%-*}")
       elif command -v espeak >/dev/null 2>&1; then
         speaker=(espeak --stdin)
-      else
-        exit 0
+        [ -n "$TTS_LANG_CODE" ] && speaker+=(-v "${TTS_LANG_CODE%%-*}")
       fi
       ;;
     MINGW*|MSYS*|CYGWIN*)
-      command -v powershell.exe >/dev/null 2>&1 || exit 0
-      speaker=(powershell.exe -NoProfile -Command
+      command -v powershell.exe >/dev/null 2>&1 && speaker=(powershell.exe -NoProfile -Command
         'Add-Type -AssemblyName System.Speech; $s=New-Object System.Speech.Synthesis.SpeechSynthesizer; $s.Speak([Console]::In.ReadToEnd())')
       ;;
-    *) exit 0 ;;
   esac
 fi
+
+# Kokoro (optional neural voices) speaks first; the platform speaker above
+# becomes its fallback for when the Kokoro server can't start or answer.
+if use_kokoro; then
+  speaker=("$TTS_KOKORO_HOME/venv/bin/python" "$TTS_KOKORO_HOME/tts_kokoro_say.py"
+           --lang "${TTS_LANG_CODE:-en}" --voice "$(kokoro_voice "$TTS_LANG_CODE" "$(tts_gender)")"
+           --speed "$TTS_KOKORO_SPEED" -- ${speaker[@]+"${speaker[@]}"})
+fi
+[ ${#speaker[@]} -eq 0 ] && exit 0
 
 # --- interrupt previous speech ---------------------------------------------
 if [ -f "$TTS_PID_FILE" ]; then

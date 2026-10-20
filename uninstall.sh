@@ -4,10 +4,22 @@
 # Removes the two hook entries from ~/.claude/settings.json (backup first),
 # deletes the installed hook scripts, the flag file, and the speech pid file.
 # Leaves every other setting and every foreign hook untouched. Idempotent.
+#
+# --kokoro also deletes the shared Kokoro voices folder (used by every
+# instance, so it is kept unless asked).
 
 set -euo pipefail
 
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+KOKORO=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dir) [ $# -ge 2 ] || { echo "error: --dir needs a path" >&2; exit 1; }
+           CLAUDE_DIR="$2"; shift 2 ;;
+    --kokoro) KOKORO=1; shift ;;
+    *) echo "error: unknown option $1 (try --dir PATH or --kokoro)" >&2; exit 1 ;;
+  esac
+done
 HOOKS_DIR="$CLAUDE_DIR/hooks"
 SETTINGS="$CLAUDE_DIR/settings.json"
 
@@ -87,6 +99,20 @@ fi
 
 rm -f "$HOOKS_DIR/tts-common.sh" "$HOOKS_DIR/tts-toggle.sh" \
       "$HOOKS_DIR/tts-prompt-hook.sh" "$HOOKS_DIR/tts-stop-hook.sh"
-rm -f "$CLAUDE_DIR/commands/tts.md" "$CLAUDE_DIR/tts-enabled" "$CLAUDE_DIR/tts-speech.pid"
+rm -f "$CLAUDE_DIR/commands/tts.md" "$CLAUDE_DIR/tts-enabled" "$CLAUDE_DIR/tts-speech.pid" "$CLAUDE_DIR/tts-lang" "$CLAUDE_DIR/tts-voice" "$CLAUDE_DIR/tts-gender"
 
 echo "claude-tts uninstalled."
+
+KOKORO_HOME="${CLAUDE_TTS_KOKORO_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/claude-tts/kokoro}"
+if [ "$KOKORO" = 1 ]; then
+  pkill -f "$KOKORO_HOME/tts_kokoro_server.py" 2>/dev/null || true
+  if [ -f "$KOKORO_HOME/tts_kokoro_server.py" ] || [ -d "$KOKORO_HOME/venv" ]; then
+    rm -rf "$KOKORO_HOME"   # only a folder that is recognisably ours
+    rmdir "$(dirname "$KOKORO_HOME")" 2>/dev/null || true
+    echo "Kokoro voices removed ($KOKORO_HOME)."
+  elif [ -e "$KOKORO_HOME" ]; then
+    echo "warning: $KOKORO_HOME doesn't look like a claude-tts Kokoro install — left untouched" >&2
+  fi
+elif [ -d "$KOKORO_HOME" ]; then
+  echo "Kokoro voices kept at $KOKORO_HOME (shared by all instances) — remove with: ./uninstall.sh --kokoro"
+fi

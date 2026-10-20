@@ -41,7 +41,23 @@ fresh_home() {
   # from their own location; pin them to the sandbox HOME.
   export CLAUDE_TTS_FLAG="$HOME/.claude/tts-enabled"
   export CLAUDE_TTS_PID_FILE="$HOME/.claude/tts-speech.pid"
+  export CLAUDE_TTS_LANG_FILE="$HOME/.claude/tts-lang"
+  export CLAUDE_TTS_VOICE_FILE="$HOME/.claude/tts-voice"
+  export CLAUDE_TTS_GENDER_FILE="$HOME/.claude/tts-gender"
+  # absent unless a test calls fake_kokoro, so the default engine stays `say`
+  export CLAUDE_TTS_KOKORO_HOME="$HOME/kokoro"
   unset CLAUDE_CONFIG_DIR
+  # fake macOS voice list (novelty voice first to exercise ranking)
+  cat > "$HOME/stub-bin/voices" <<'EOF'
+#!/usr/bin/env bash
+echo "Samantha             en_US    # Hello!"
+echo "Eddy (Spanish (Spain)) es_ES    # Hola!"
+echo "Mónica               es_ES    # Hola!"
+echo "Paulina              es_MX    # Hola!"
+echo "Thomas               fr_FR    # Bonjour!"
+EOF
+  chmod +x "$HOME/stub-bin/voices"
+  export TTS_VOICE_LIST_CMD="$HOME/stub-bin/voices"
   # Stub `say`: log invocation + stdin, then linger so interruption is testable.
   cat > "$HOME/stub-bin/say" <<'EOF'
 #!/usr/bin/env bash
@@ -51,6 +67,18 @@ EOF
   chmod +x "$HOME/stub-bin/say"
   PATH="$HOME/stub-bin:$PATH"
   export PATH
+}
+
+# fake_kokoro — a stand-in Kokoro install: its `python` logs the client's
+# arguments and stdin to $HOME/kokoro.log instead of speaking.
+fake_kokoro() {
+  mkdir -p "$CLAUDE_TTS_KOKORO_HOME/venv/bin"
+  : > "$CLAUDE_TTS_KOKORO_HOME/tts_kokoro_say.py"
+  cat > "$CLAUDE_TTS_KOKORO_HOME/venv/bin/python" <<'EOF'
+#!/usr/bin/env bash
+{ echo "ARGS:$*"; echo "STDIN:$(cat)"; } >> "$HOME/kokoro.log"
+EOF
+  chmod +x "$CLAUDE_TTS_KOKORO_HOME/venv/bin/python"
 }
 
 overall_fail=0
