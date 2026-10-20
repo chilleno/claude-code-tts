@@ -38,12 +38,11 @@ case "${1:-}" in
     engine="$(tts_engine)"
     if use_kokoro; then
       echo "speech engine: kokoro${engine:+ (fallback: $engine)}"
-    elif [ -n "$engine" ]; then
-      echo "speech engine: $engine"
-      if kokoro_ready && [ -n "$v" ]; then echo "kokoro: installed, not used while an Apple voice is chosen — back to Kokoro with: tts voice woman (or man)"
-      elif kokoro_ready; then echo "kokoro: installed, but has no $(lang_name "$cur") voices — using $engine"; fi
     else
-      echo "speech engine: none found — replies won't be spoken (Linux: install speech-dispatcher or espeak)"
+      if [ -n "$engine" ]; then echo "speech engine: $engine"
+      else echo "speech engine: none found — replies won't be spoken (Linux: install speech-dispatcher or espeak)"; fi
+      if kokoro_ready && [ -n "$v" ]; then echo "kokoro: installed, not used while an Apple voice is chosen — back to Kokoro with: tts voice woman (or man)"
+      elif kokoro_ready; then echo "kokoro: installed, but has no $(lang_name "$cur") voices — using ${engine:-no engine}"; fi
     fi
     ;;
   ""|toggle)
