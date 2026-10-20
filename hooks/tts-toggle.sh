@@ -12,7 +12,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/tts-common.sh"
 
 turn_on()  { mkdir -p "$(dirname "$TTS_FLAG")"; touch "$TTS_FLAG"; echo "🔊 TTS on"; }
-turn_off() { rm -f "$TTS_FLAG"; echo "🔇 TTS off"; }
+turn_off() {
+  rm -f "$TTS_FLAG"
+  # Silence whatever is speaking, and shut the Kokoro server down so its ~1 GB is freed now rather than after the
+  # idle timeout. It is shared by all Claude instances; one that still has TTS on just restarts it on its next reply.
+  if [ -f "$TTS_PID_FILE" ]; then kill "$(cat "$TTS_PID_FILE")" >/dev/null 2>&1; rm -f "$TTS_PID_FILE"; fi
+  if kokoro_ready; then "$TTS_KOKORO_HOME/venv/bin/python" "$TTS_KOKORO_HOME/tts_kokoro_say.py" --quit >/dev/null 2>&1 || true; fi
+  echo "🔇 TTS off"
+}
 
 # kokoro_status_voice — "Dora (woman, Kokoro) — switch with: tts voice man"
 kokoro_status_voice() {

@@ -79,6 +79,16 @@ assert "voice woman: kokoro again"        grep -q "STDIN:back" "$HOME/kokoro.log
 bash "$TOGGLE" voice off >/dev/null
 assert "voice off: gender cleared"        [ ! -f "$HOME/.claude/tts-gender" ]
 
+# tts off frees the Kokoro server and silences the current speech
+rm -f "$HOME/kokoro.log"
+sleep 30 & echo $! > "$HOME/.claude/tts-speech.pid"; speaking=$!
+prompt "tts off"
+assert "tts off: exit 2"                  [ "$rc" -eq 2 ]
+assert "tts off: kokoro told to quit"     grep -q -- "--quit" "$HOME/kokoro.log"
+assert "tts off: speech killed"           bash -c '! kill -0 "$1" 2>/dev/null' _ "$speaking"
+assert "tts off: pid file removed"        [ ! -f "$HOME/.claude/tts-speech.pid" ]
+touch "$HOME/.claude/tts-enabled"
+
 # --- uninstall --kokoro --------------------------------------------------------
 bash "$REPO_DIR/uninstall.sh" >/dev/null 2>&1
 assert "uninstall: kokoro kept by default" [ -d "$CLAUDE_TTS_KOKORO_HOME" ]

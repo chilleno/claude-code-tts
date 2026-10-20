@@ -83,7 +83,7 @@ Switch with `tts voice man` / `tts voice woman`. `tts lang es-es` keeps Castilia
 
 - **Cost:** about 2 GB of downloads, once, into `~/.local/share/claude-tts/kokoro` (override with `CLAUDE_TTS_KOKORO_HOME`) — a private Python 3.11, PyTorch, the 82M-parameter model and the four voices. Shared by every Claude instance; nothing is installed system-wide. Needs `python3` (any version) to bootstrap; macOS and Linux.
 - **Speed:** on Apple Silicon the first words start about a second after the reply arrives, 10–20× faster than real time; replies are spoken sentence by sentence.
-- **Memory:** a small background server keeps the model loaded (~1 GB RAM) so replies start instantly. It is started on the first spoken reply and exits on its own after 30 idle minutes (`TTS_KOKORO_IDLE`, seconds). A new reply interrupts the one playing.
+- **Memory:** a small background server keeps the model loaded (~1 GB RAM) so replies start instantly. It is started on the first spoken reply and stops — freeing that memory — as soon as you type `tts off`, or on its own after 30 idle minutes (`TTS_KOKORO_IDLE`, seconds). `tts off` also cuts off any speech still playing. A new reply interrupts the one playing.
 - **Fallback:** if Kokoro can't start or answer, the platform voice (`say`) reads the reply instead. Picking an Apple voice by name (`tts voice Paulina`) also uses `say`; `tts voice woman`/`man` goes back to Kokoro.
 - **Speed control:** `TTS_KOKORO_SPEED` (default `1.0`) in the stop hook's config block or the environment. Server log: `~/.local/share/claude-tts/kokoro/server.log`.
 

@@ -8,21 +8,35 @@ Exits on its own after TTS_KOKORO_IDLE seconds without requests, so the
 
 Protocol: one JSON line per connection —
   {"text": "...", "lang": "es-mx", "voice": "ef_dora", "speed": 1.0}  -> "ok" | "unsupported" | "error"
-  {"cmd": "stop"}                                                      -> "ok"
+  {"cmd": "stop"}                                                      -> "ok"   (stop speaking)
+  {"cmd": "quit"}                                                      -> "ok"   (stop speaking and exit; `tts off`)
 
 Usage:
   python tts_kokoro_server.py                 # serve (normally started by tts_kokoro_say.py)
   python tts_kokoro_server.py --warmup V...   # download model + voices, synthesize a test line, exit
 """
 
-import fcntl, json, os, queue, re, shutil, socket, subprocess, sys, tempfile, threading, time
+import atexit, fcntl, json, os, queue, re, shutil, signal, socket, subprocess, sys, tempfile, threading, time
 
 HOME = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HOME)
-from tts_kokoro_say import SOCK  # one definition of where the socket lives
+from tts_kokoro_say import SOCK, PID  # one definition of where the socket and pid file live
 LOCK = os.path.join(HOME, "server.lock")
 IDLE = float(os.environ.get("TTS_KOKORO_IDLE", "1800"))
 WARMUP = len(sys.argv) > 1 and sys.argv[1] == "--warmup"
+
+if __name__ == "__main__" and not WARMUP:
+    # Claim the server slot and publish our pid *before* the slow imports below, so `tts off` can stop a server
+    # that is still loading. SIGTERM exits through atexit/finally, which remove the pid file and the socket.
+    _lockf = open(LOCK, "w")
+    try:
+        fcntl.flock(_lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit(0)  # another server is already starting or running
+    with open(PID, "w") as _f:
+        _f.write(str(os.getpid()))
+    atexit.register(lambda: os.path.exists(PID) and open(PID).read().strip() == str(os.getpid()) and os.unlink(PID))
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 
 os.environ.setdefault("HF_HOME", os.path.join(HOME, "hf"))
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
@@ -167,12 +181,7 @@ def warmup(voices):
 
 
 def serve():
-    lockf = open(LOCK, "w")
-    try:
-        fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        return  # another server is already starting or running
-    sp = Speaker()
+    sp = Speaker()  # the server slot (lock + pid file) was claimed at import time
     if os.path.exists(SOCK):
         os.unlink(SOCK)
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -193,12 +202,14 @@ def serve():
                     return
                 continue
             last = time.time()
+            quit_now = False
             with conn:
                 conn.settimeout(5)
                 try:
                     req = json.loads(conn.makefile("r", encoding="utf-8").readline())
-                    if req.get("cmd") == "stop":
+                    if req.get("cmd") in ("stop", "quit"):
                         sp.stop()
+                        quit_now = req["cmd"] == "quit"
                         reply = "ok"
                     else:
                         reply = sp.speak(req.get("text", ""), (req.get("lang") or "en").lower(),
@@ -210,6 +221,9 @@ def serve():
                     conn.sendall((reply + "\n").encode())
                 except OSError:
                     pass
+            if quit_now:
+                log("quit requested (tts off), exiting")
+                return
     finally:
         sp.stop()
         srv.close()

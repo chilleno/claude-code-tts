@@ -16,6 +16,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [S
 - Installer detects multiple Claude instances (`~/.claude`, `~/.claude-*`, `CLAUDE_CONFIG_DIR` aliases in shell rc files) and interactively asks which to install into; `--dir PATH` flag on install and uninstall for scripted use.
 
 - Optional Kokoro neural voices (`./install.sh --kokoro`): free, offline, English (Heart / Michael) and neutral Latin-American Spanish (Dora / Alex). Installed once into `~/.local/share/claude-tts/kokoro` with a private Python; a background server keeps the model loaded, speaks sentence by sentence, interrupts on a new reply and exits after 30 idle minutes. Falls back to the platform voice. `./uninstall.sh --kokoro` removes it.
+- `tts off` stops the Kokoro server right away (frees its ~1 GB, even while it is still loading) and cuts off speech that is playing.
 - `tts voice man` / `tts voice woman` (also `male`/`female`): switch the Kokoro voice gender; `tts status`, `tts lang` and `tts voices` show the Kokoro voice in use.
 
 ### Fixed
